@@ -7,7 +7,11 @@ import type { UserPayload } from '@/shared/types/express.d.js';
 import type { EmployeeRole } from '@prisma/client';
 
 export function authMiddleware(req: Request, _res: Response, next: NextFunction): void {
-  const token: string | undefined = req.cookies?.[AUTH_COOKIE_NAME];
+  let token: string | undefined = req.cookies?.[AUTH_COOKIE_NAME];
+
+  if (!token && req.headers?.authorization?.startsWith('Bearer ')) {
+    token = req.headers.authorization.split(' ')[1];
+  }
 
   if (!token) {
     throw new UnauthorizedError('Token de autenticação não fornecido via cookie seguro.');

@@ -35,7 +35,21 @@ describe('Auth Middleware', () => {
       expect(next).toHaveBeenCalledTimes(1);
     });
 
-    it('deve lançar UnauthorizedError se nenhum cookie de auth for enviado', () => {
+    it('deve autenticar com sucesso quando um token JWT válido for fornecido no header Authorization Bearer', () => {
+      const payload = { id: 'user-123', hotelId: 'hotel-123', role: EmployeeRole.ADMIN };
+      const token = jwt.sign(payload, env.JWT_SECRET, { expiresIn: '1h' });
+
+      req.headers = { authorization: `Bearer ${token}` };
+
+      authMiddleware(req as Request, res as Response, next);
+
+      expect(req.user).toBeDefined();
+      expect(req.user?.id).toBe('user-123');
+      expect(req.hotelId).toBe('hotel-123');
+      expect(next).toHaveBeenCalledTimes(1);
+    });
+
+    it('deve lançar UnauthorizedError se nenhum cookie de auth nem header for enviado', () => {
       req.cookies = {};
 
       expect(() => authMiddleware(req as Request, res as Response, next)).toThrow(UnauthorizedError);

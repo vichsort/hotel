@@ -3,6 +3,7 @@ import { env } from "@/config/env.js";
 
 const defaultDevOrigins = [
   "http://localhost:3000",
+  "http://localhost:4200",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:8080",
@@ -13,9 +14,11 @@ function getAllowedOrigins(): string[] {
   if (!rawOrigins || !rawOrigins.trim()) {
     return defaultDevOrigins;
   }
-  return rawOrigins
+  // Remove aspas externas se fornecidas pelo Raw Editor do Railway
+  const cleanRaw = rawOrigins.replace(/^["']|["']$/g, '');
+  return cleanRaw
     .split(",")
-    .map((origin) => origin.trim())
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
     .filter(Boolean);
 }
 
@@ -27,7 +30,9 @@ export const corsOptions: CorsOptions = {
       return callback(null, true);
     }
 
-    if (allowedOrigins.includes(origin) || env.NODE_ENV === "development") {
+    const cleanOrigin = origin.replace(/\/+$/, '');
+
+    if (allowedOrigins.includes(cleanOrigin) || env.NODE_ENV === "development") {
       return callback(null, true);
     }
 

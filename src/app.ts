@@ -9,6 +9,9 @@ import { errorMiddleware } from '@/shared/middlewares/error.middleware.js';
 export function createApp(): Application {
   const app = express();
 
+  // Permite que o Express identifique conexões HTTPS através do proxy do Railway
+  app.set('trust proxy', 1);
+
   // Middlewares essenciais de segurança, cookies e parsing de payload
   app.use(helmet());
   app.use(cors(corsOptions));

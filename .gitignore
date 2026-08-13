@@ -1,0 +1,39 @@
+/generated/prisma
+
+# Dependências
+node_modules/
+
+# Build
+dist/
+build/
+
+# Ambiente
+.env
+.env.local
+.env.*.local
+
+# Prisma
+prisma/*.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Cobertura de testes
+coverage/
+
+# Ferramentas de IA para código (config local, não versionar por padrão)
+.claude/
+.windsurf/
+.agents/
+skills-lock.json
+.neon

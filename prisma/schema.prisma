@@ -1,0 +1,213 @@
+// ============================================================================
+// Hotel MVP — Prisma Schema
+// Convenções:
+// - Models em PascalCase singular, campos em camelCase
+// - Colunas físicas em snake_case via @map / @@map
+// - IDs em UUID (nunca sequenciais, evita enumeração)
+// - Soft delete via `deletedAt` (nullable) em todo model editável pelo usuário
+// - Enums para todo campo com domínio fechado de valores
+// ============================================================================
+
+datasource db {
+  provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ----------------------------------------------------------------------------
+// Enums
+// ----------------------------------------------------------------------------
+
+enum EmployeeRole {
+  ADMIN
+  STAFF
+}
+
+enum RoomStatus {
+  AVAILABLE
+  MAINTENANCE
+  CLEANING
+  OUT_OF_SERVICE
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  CHECKED_IN
+  CHECKED_OUT
+  CANCELLED
+}
+
+enum OrderSource {
+  MANUAL
+  CSV_IMPORT
+  CHAT_WIDGET
+}
+
+// ----------------------------------------------------------------------------
+// Hotel — raiz de todo o multi-tenancy. Toda tabela relevante carrega hotelId.
+// ----------------------------------------------------------------------------
+
+model Hotel {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  employees          Employee[]
+  guests             Guest[]
+  roomTypes          RoomType[]
+  rooms              Room[]
+  orders             Order[]
+
+  @@map("hotels")
+}
+
+// ----------------------------------------------------------------------------
+// Employee — funcionário do hotel. Guarda login diretamente (único que loga).
+// ----------------------------------------------------------------------------
+
+model Employee {
+  id           String       @id @default(uuid())
+  hotelId      String       @map("hotel_id")
+  name         String
+  email        String
+  passwordHash String       @map("password_hash")
+  role         EmployeeRole @default(STAFF)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+  deletedAt    DateTime?    @map("deleted_at")
+
+  hotel               Hotel               @relation(fields: [hotelId], references: [id])
+  statusChangesLogged OrderStatusHistory[]
+
+  // Email único por hotel (não globalmente)
+  @@unique([hotelId, email])
+  @@map("employees")
+}
+
+// ----------------------------------------------------------------------------
+// Guest — hóspede, escopado por hotel (sem login, sem conta).
+// ----------------------------------------------------------------------------
+
+model Guest {
+  id        String    @id @default(uuid())
+  hotelId   String    @map("hotel_id")
+  name      String
+  email     String?
+  phone     String?
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  deletedAt DateTime? @map("deleted_at")
+
+  hotel  Hotel   @relation(fields: [hotelId], references: [id])
+  orders Order[]
+
+  @@index([hotelId, email])
+  @@index([hotelId, phone])
+  @@map("guests")
+}
+
+// ----------------------------------------------------------------------------
+// RoomType — categoria de acomodação (ex. "Standard", "Suíte").
+// totalRooms NÃO existe aqui de propósito: a contagem é sempre derivada de
+// count(Room where roomTypeId = X) para evitar duas fontes de verdade.
+// ----------------------------------------------------------------------------
+
+model RoomType {
+  id          String    @id @default(uuid())
+  hotelId     String    @map("hotel_id")
+  name        String
+  description String?
+  basePrice   Decimal   @map("base_price") @db.Decimal(10, 2)
+  images      String[]  @default([])
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+  deletedAt   DateTime? @map("deleted_at")
+
+  hotel  Hotel   @relation(fields: [hotelId], references: [id])
+  rooms  Room[]
+  orders Order[]
+
+  @@map("room_types")
+}
+
+// ----------------------------------------------------------------------------
+// Room — quarto físico. `status` guarda só estado operacional/físico —
+// NUNCA "ocupado/livre", que é sempre calculado a partir dos Orders ativos.
+// ----------------------------------------------------------------------------
+
+model Room {
+  id         String     @id @default(uuid())
+  hotelId    String     @map("hotel_id")
+  roomTypeId String     @map("room_type_id")
+  number     String
+  floor      String?
+  status     RoomStatus @default(AVAILABLE)
+  createdAt  DateTime   @default(now()) @map("created_at")
+  updatedAt  DateTime   @updatedAt @map("updated_at")
+  deletedAt  DateTime?  @map("deleted_at")
+
+  hotel    Hotel    @relation(fields: [hotelId], references: [id])
+  roomType RoomType @relation(fields: [roomTypeId], references: [id])
+  orders   Order[]
+
+  // Número de quarto único por hotel (não por RoomType)
+  @@unique([hotelId, number])
+  @@map("rooms")
+}
+
+// ----------------------------------------------------------------------------
+// Order — o pedido/reserva. Centro do sistema: alimentado pelos 3 canais
+// (manual, CSV, chat widget) via o campo `source`.
+// ----------------------------------------------------------------------------
+
+model Order {
+  id             String      @id @default(uuid())
+  hotelId        String      @map("hotel_id")
+  guestId        String      @map("guest_id")
+  roomTypeId     String      @map("room_type_id")
+  roomId         String?     @map("room_id") // alocado perto do check-in, pode ser nulo
+  checkInDate    DateTime    @map("check_in_date") @db.Date
+  checkOutDate   DateTime    @map("check_out_date") @db.Date
+  numberOfGuests Int         @default(1) @map("number_of_guests")
+  status         OrderStatus @default(PENDING)
+  source         OrderSource @default(MANUAL)
+  notes          String?
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  deletedAt      DateTime?   @map("deleted_at")
+
+  hotel        Hotel                @relation(fields: [hotelId], references: [id])
+  guest        Guest                @relation(fields: [guestId], references: [id])
+  roomType     RoomType             @relation(fields: [roomTypeId], references: [id])
+  room         Room?                @relation(fields: [roomId], references: [id])
+  statusHistory OrderStatusHistory[]
+
+  // Consultas mais comuns do painel: filtrar por status e por data de check-in
+  @@index([hotelId, status])
+  @@index([hotelId, checkInDate])
+  @@map("orders")
+}
+
+// ----------------------------------------------------------------------------
+// OrderStatusHistory — log imutável de auditoria. Sem soft delete de propósito:
+// é histórico, nunca deve ser "apagado".
+// ----------------------------------------------------------------------------
+
+model OrderStatusHistory {
+  id                  String      @id @default(uuid())
+  orderId             String      @map("order_id")
+  fromStatus          OrderStatus @map("from_status")
+  toStatus            OrderStatus @map("to_status")
+  changedAt           DateTime    @default(now()) @map("changed_at")
+  changedByEmployeeId String?     @map("changed_by_employee_id") // nulo = ação automática do sistema
+
+  order            Order     @relation(fields: [orderId], references: [id])
+  changedByEmployee Employee? @relation(fields: [changedByEmployeeId], references: [id])
+
+  @@map("order_status_histories")
+}
